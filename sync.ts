@@ -16,7 +16,7 @@ const rsync = Rsync.build({
   shell: "ssh",
   flags: "ahP",
   recursive: true,
-  source: ["./build/clock", "./src/module/fonts"],
+  source: ["./build/clock", "./src/module/fonts", "./config.json"],
   destination: `${username}@${hostname}:${directory}`,
 });
 
@@ -41,5 +41,21 @@ rsync
       console.error(chalk.red("👎\t", error));
     } else {
       console.log(chalk.green(`👍\tDone! [exit code ${code}]\n\n`));
+
+      // Copy config.json to /etc for external configuration
+      console.log(chalk.magenta("📋\tCopying config.json to /etc/clock-config.json..."));
+      const { execSync } = require("child_process");
+      const { readFileSync } = require("fs");
+      try {
+        const configContent = readFileSync("./config.json", "utf-8");
+        const escapedConfig = configContent.replace(/'/g, "'\\''");
+        execSync(
+          `ssh ${username}@${hostname} "echo '${escapedConfig}' > /etc/clock-config.json"`,
+          { stdio: "inherit" },
+        );
+        console.log(chalk.green("✓\tConfig copied to /etc/clock-config.json"));
+      } catch (err) {
+        console.error(chalk.red("✗\tFailed to copy config to /etc:"), err);
+      }
     }
   });

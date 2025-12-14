@@ -136,6 +136,12 @@ function drawRectangularClock(matrix: LedMatrixInstance, config: AnalogClockConf
 export const run = async (matrix: LedMatrixInstance) => {
   try {
     const config = loadConfig();
+
+    // Set brightness from config (default to 100 if not specified)
+    const brightness = config.brightness ?? 100;
+    matrix.brightness(brightness);
+    console.log(`✓ Brightness set to ${brightness}%`);
+
     while (true) {
       drawRectangularClock(matrix, config.analogClock);
       await wait(1000); // update once per second
