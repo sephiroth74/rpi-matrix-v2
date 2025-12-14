@@ -1,7 +1,8 @@
 import { Font, type LedMatrixInstance } from "../module";
 import { wait } from "../utils";
+import { loadConfig, type AnalogClockConfig } from "../config";
 
-const font = new Font("font", "./fonts/4x6.bdf");
+const font = new Font("font", "/root/fonts/4x6.bdf");
 
 /**
  * Convert fraction f ∈ [0, 1) to a point (x, y) along the rectangle's perimeter
@@ -46,7 +47,7 @@ function perimeterPointTopCenter(
 /**
  * Draw the rectangular clock onto the matrix.
  */
-function drawRectangularClock(matrix: LedMatrixInstance): void {
+function drawRectangularClock(matrix: LedMatrixInstance, config: AnalogClockConfig): void {
   const w = matrix.width(); // 64
   const h = matrix.height(); // 32
   const cx = Math.floor(w / 2);
@@ -95,13 +96,13 @@ function drawRectangularClock(matrix: LedMatrixInstance): void {
   const [sxFinal, syFinal] = handCoords(cx, cy, sx, sy, secondLength);
 
   // Draw hour, minute, second hands in different colors
-  matrix.fgColor(0xff0000); // red for hour
+  matrix.fgColor(config.hourHandColor);
   matrix.drawLine(cx, cy, hxFinal, hyFinal);
 
-  matrix.fgColor(0x00ff00); // green for minute
+  matrix.fgColor(config.minuteHandColor);
   matrix.drawLine(cx, cy, mxFinal, myFinal);
 
-  matrix.fgColor(0xffff00); // yellow for second
+  matrix.fgColor(config.secondHandColor);
   matrix.drawLine(cx, cy, sxFinal, syFinal);
 
   // Draw 12 hour markers on the perimeter
@@ -113,7 +114,7 @@ function drawRectangularClock(matrix: LedMatrixInstance): void {
     const inwardFrac = 0.9;
     const [tx, ty] = handCoords(cx, cy, px, py, inwardFrac);
 
-    matrix.fgColor(0xffffff);
+    matrix.fgColor(config.markersColor);
     matrix.drawLine(px, py, tx, ty);
   }
 
@@ -126,7 +127,7 @@ function drawRectangularClock(matrix: LedMatrixInstance): void {
   const xDate = 6;
   const yDate = 14;
 
-  matrix.fgColor(0xffffff);
+  matrix.fgColor(config.dateColor);
   matrix.drawText(dateStr, xDate, yDate);
 
   matrix.sync();
@@ -134,8 +135,9 @@ function drawRectangularClock(matrix: LedMatrixInstance): void {
 
 export const run = async (matrix: LedMatrixInstance) => {
   try {
+    const config = loadConfig();
     while (true) {
-      drawRectangularClock(matrix);
+      drawRectangularClock(matrix, config.analogClock);
       await wait(1000); // update once per second
     }
   } catch (error) {

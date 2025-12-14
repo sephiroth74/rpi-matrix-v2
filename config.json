@@ -1,0 +1,13 @@
+{
+  "letterClock": {
+    "dateColor": { "r": 52, "g": 11, "b": 242 },
+    "timeColor": { "r": 52, "g": 11, "b": 242 }
+  },
+  "analogClock": {
+    "hourHandColor": { "r": 255, "g": 0, "b": 0 },
+    "minuteHandColor": { "r": 0, "g": 255, "b": 0 },
+    "secondHandColor": { "r": 255, "g": 255, "b": 0 },
+    "markersColor": { "r": 255, "g": 255, "b": 255 },
+    "dateColor": { "r": 255, "g": 255, "b": 255 }
+  }
+}
