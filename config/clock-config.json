@@ -1,6 +1,8 @@
 {
   "brightness": 50,
   "fixed_color": -1,
+  "dateFormat": "%a %d %b",
+  "timeFormat": "%H:%M:%S",
   "colors": [
     { "name": "ROSSO", "r": 255, "g": 0, "b": 0 },
     { "name": "ARANCIO", "r": 255, "g": 128, "b": 0 },
@@ -15,7 +17,7 @@
   ],
   "colorTransition": {
     "enabled": true,
-    "intervalMinutes": 120,
-    "transitionDurationSeconds": 30
+    "intervalMinutes": 2,
+    "durationMs": 1000
   }
 }

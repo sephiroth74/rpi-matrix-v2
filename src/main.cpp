@@ -19,13 +19,19 @@
 #include <csignal>
 #include <cstring>
 #include <string>
+#include <cmath>
+#include <locale.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
 
 using namespace rgb_matrix;
 
 #define GPIO_NUM 19
 #define CONFIG_PATH "/root/clock-config.json"
 #define COLOR_DISPLAY_MS 2000
-#define VERSION_DISPLAY_MS 3000
+#define VERSION_DISPLAY_MS 5000
 
 volatile bool interrupt_received = false;
 static void InterruptHandler(int signo) {
@@ -44,6 +50,36 @@ long getCurrentTimeMs() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// Get local IP address
+std::string getLocalIP() {
+    struct ifaddrs *ifaddr, *ifa;
+    char ip[INET_ADDRSTRLEN];
+    std::string result = "No IP";
+
+    if (getifaddrs(&ifaddr) == -1) {
+        return result;
+    }
+
+    // Look for non-loopback IPv4 address
+    for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr) continue;
+
+        if (ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+            inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip));
+
+            // Skip loopback (127.0.0.1)
+            if (strcmp(ip, "127.0.0.1") != 0) {
+                result = ip;
+                break;
+            }
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    return result;
 }
 
 // Short press callback: cycle brightness
@@ -84,7 +120,28 @@ void onLongPress() {
     printf("🎨 Color: %s\n", g_message_text->c_str());
 }
 
+// Ease-in-out cubic function for smooth transitions
+float easeInOutCubic(float t) {
+    return t < 0.5f ? 4.0f * t * t * t : 1.0f - (float)pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
+}
+
+// Interpolate between two colors
+Color interpolateColor(const NamedColor& from, const NamedColor& to, float progress) {
+    float eased = easeInOutCubic(progress);
+    uint8_t r = (uint8_t)(from.r * (1.0f - eased) + to.r * eased);
+    uint8_t g = (uint8_t)(from.g * (1.0f - eased) + to.g * eased);
+    uint8_t b = (uint8_t)(from.b * (1.0f - eased) + to.b * eased);
+    return Color(r, g, b);
+}
+
 int main(int argc, char *argv[]) {
+    // Set locale for date/time formatting (from Makefile LOCALE variable)
+#ifdef SYSTEM_LOCALE
+    setlocale(LC_TIME, SYSTEM_LOCALE);
+#else
+    setlocale(LC_TIME, "it_IT.UTF-8");
+#endif
+
     // Print version
     printf("═══════════════════════════════════════\n");
     printf("  LED Matrix Clock v%s\n", VERSION_STRING);
@@ -111,6 +168,12 @@ int main(int argc, char *argv[]) {
         printf("(invalid)\n");
     }
     printf("  Color transition: %s\n", config.colorTransitionEnabled ? "enabled" : "disabled");
+    if (config.colorTransitionEnabled) {
+        printf("    Interval: %d minutes\n", config.colorTransitionIntervalMinutes);
+        printf("    Duration: %d ms\n", config.colorTransitionDurationMs);
+    }
+    printf("  Date format: \"%s\"\n", config.dateFormat.c_str());
+    printf("  Time format: \"%s\"\n", config.timeFormat.c_str());
     printf("  Available colors: %zu\n", config.colors.size());
     for (size_t i = 0; i < config.colors.size(); i++) {
         const NamedColor& nc = config.colors[i];
@@ -127,9 +190,16 @@ int main(int argc, char *argv[]) {
     }
 
     rgb_matrix::Font font_small;
-    const char *font_small_path = "/root/fonts/spleen-5x8.bdf";
+    const char *font_small_path = "/root/fonts/5x8.bdf";
     if (!font_small.LoadFont(font_small_path)) {
         fprintf(stderr, "Couldn't load small font: %s\n", font_small_path);
+        return 1;
+    }
+
+    rgb_matrix::Font font_tiny;
+    const char *font_tiny_path = "/root/fonts/4x6.bdf";
+    if (!font_tiny.LoadFont(font_tiny_path)) {
+        fprintf(stderr, "Couldn't load tiny font: %s\n", font_tiny_path);
         return 1;
     }
 
@@ -164,10 +234,38 @@ int main(int argc, char *argv[]) {
     FrameCanvas *offscreen_canvas = matrix->CreateFrameCanvas();
     FrameCanvas *temp_canvas = matrix->CreateFrameCanvas();
 
-    // Message display state - show version at startup
+    // Get local IP address
+    std::string local_ip = getLocalIP();
+    printf("🌐 Local IP: %s\n", local_ip.c_str());
+
+    // Display IP and version at startup
     long startup_time = getCurrentTimeMs();
     long message_display_until = startup_time + VERSION_DISPLAY_MS;
-    std::string message_text = std::string(Locale::MSG_VERSION_PREFIX) + std::string(VERSION_STRING);
+    Color startup_color(255, 255, 255);
+
+    // Show IP and version for a few seconds
+    offscreen_canvas->Clear();
+
+    // Draw IP address in tiny font (centered)
+    int ip_width = DrawText(temp_canvas, font_tiny, 0, 0, startup_color, NULL, local_ip.c_str());
+    int ip_x = (64 - ip_width) / 2;
+    int ip_y = 12; // Upper half
+    DrawText(offscreen_canvas, font_tiny, ip_x, ip_y, startup_color, NULL, local_ip.c_str());
+
+    // Draw version in small font below (centered)
+    std::string version_text = std::string(Locale::MSG_VERSION_PREFIX) + std::string(VERSION_STRING);
+    int version_width = DrawText(temp_canvas, font_small, 0, 0, startup_color, NULL, version_text.c_str());
+    int version_x = (64 - version_width) / 2;
+    int version_y = 26; // Lower half
+    DrawText(offscreen_canvas, font_small, version_x, version_y, startup_color, NULL, version_text.c_str());
+
+    offscreen_canvas = matrix->SwapOnVSync(offscreen_canvas);
+
+    // Wait for display duration
+    usleep(VERSION_DISPLAY_MS * 1000);
+
+    // Reset message state for normal operation
+    std::string message_text = "";
     Color message_color(255, 255, 255);
 
     // Setup global pointers for button callbacks
@@ -186,6 +284,13 @@ int main(int argc, char *argv[]) {
     button.onShortPress(onShortPress);
     button.onLongPress(onLongPress);
     printf("✓ GPIO %d configured with pull-up\n", GPIO_NUM);
+
+    // Color transition state
+    int current_color_index = 0;
+    int next_color_index = 1;
+    long transition_start_time = getCurrentTimeMs();
+    long intervalMs = config.colorTransitionIntervalMinutes * 60 * 1000; // Convert minutes to ms
+    long next_color_change_time = transition_start_time + intervalMs;
 
     printf("Clock started.\n");
     printf("  Short press: Cycle brightness (10%% - 100%%)\n");
@@ -212,27 +317,59 @@ int main(int argc, char *argv[]) {
         } else {
             // Normal clock display
             if (config.fixed_color >= 0 && config.fixed_color < (int)config.colors.size()) {
+                // Fixed color mode
                 const NamedColor& nc = config.colors[config.fixed_color];
                 display_color = Color(nc.r, nc.g, nc.b);
+            } else if (config.colorTransitionEnabled && config.colors.size() >= 2) {
+                // AUTO mode with smooth transitions
+                long time_until_next_change = next_color_change_time - current_time;
+
+                // Check if we're in the transition window (last N milliseconds before color change)
+                if (time_until_next_change <= config.colorTransitionDurationMs && time_until_next_change > 0) {
+                    // Transitioning to next color
+                    float progress = 1.0f - ((float)time_until_next_change / (float)config.colorTransitionDurationMs);
+                    display_color = interpolateColor(
+                        config.colors[current_color_index],
+                        config.colors[next_color_index],
+                        progress
+                    );
+                } else if (time_until_next_change <= 0) {
+                    // Time to switch to next color
+                    current_color_index = next_color_index;
+                    next_color_index = (next_color_index + 1) % config.colors.size();
+                    next_color_change_time = current_time + intervalMs;
+
+                    // Display the new current color
+                    const NamedColor& nc = config.colors[current_color_index];
+                    display_color = Color(nc.r, nc.g, nc.b);
+
+                    // Debug log
+                    printf("🔄 Color changed to %s RGB(%d,%d,%d), next in %dmin\n",
+                           nc.name.c_str(), nc.r, nc.g, nc.b, config.colorTransitionIntervalMinutes);
+                } else {
+                    // Not in transition - display current color
+                    const NamedColor& nc = config.colors[current_color_index];
+                    display_color = Color(nc.r, nc.g, nc.b);
+                }
             } else {
-                // AUTO mode - use default yellow
-                display_color = Color(255, 220, 0);
+                // Fallback - use first color or yellow
+                if (config.colors.size() > 0) {
+                    const NamedColor& nc = config.colors[0];
+                    display_color = Color(nc.r, nc.g, nc.b);
+                } else {
+                    display_color = Color(255, 220, 0);
+                }
             }
 
             // Get current time
             time_t now = time(NULL);
             struct tm *tm_info = localtime(&now);
 
-            // Format date using locale
+            // Format date and time using config formats
             char date_buffer[32];
-            snprintf(date_buffer, sizeof(date_buffer), Locale::DATE_FORMAT,
-                     Locale::DAY_NAMES[tm_info->tm_wday],
-                     tm_info->tm_mday,
-                     Locale::MONTH_NAMES[tm_info->tm_mon]);
-
-            // Format time
             char time_buffer[16];
-            strftime(time_buffer, sizeof(time_buffer), "%H:%M:%S", tm_info);
+            strftime(date_buffer, sizeof(date_buffer), config.dateFormat.c_str(), tm_info);
+            strftime(time_buffer, sizeof(time_buffer), config.timeFormat.c_str(), tm_info);
 
             // Measure text widths
             int date_width = DrawText(temp_canvas, font_small, 0, 0, display_color, NULL, date_buffer);
@@ -270,7 +407,7 @@ int main(int argc, char *argv[]) {
         offscreen_canvas = matrix->SwapOnVSync(offscreen_canvas);
 
         // Update frequency
-        usleep(50000); // 50ms for responsive button detection
+        usleep(40000); // 50ms for responsive button detection
     }
 
     // Cleanup

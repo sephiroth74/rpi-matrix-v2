@@ -58,20 +58,25 @@
 
 ### Features
 
-- **Centered display** with localized date format (e.g., MON 15 DEC + HH:MM:SS)
+- **Centered display** with customizable date/time format (e.g., MON 15 DEC + HH:MM:SS)
 - **Brightness control** via physical button (GPIO 19)
   - **Short press (< 1s)**: Cycle brightness in 10% steps (10% → 20% → ... → 100% → 10%)
   - Briefly displays "XX%" on screen when brightness changes
 - **Color selection** via physical button
-  - **Long press (≥ 1s)**: Cycle through 10 colors + AUTO mode
+  - **Long press (≥ 1s)**: Cycle through 10 customizable colors + AUTO mode
   - Color name is displayed for 2 seconds in the selected color
-  - AUTO mode: automatic transition between colors (rainbow effect)
-- **Persistent configuration** saved to `/root/config-simple.json`
+  - AUTO mode: smooth color transitions with configurable timing
+- **Smooth color transitions** in AUTO mode
+  - Uses cubic ease-in-out interpolation for natural color changes
+  - Configurable interval (minutes) and transition duration (milliseconds)
+- **Persistent configuration** saved to `/root/clock-config.json`
   - Brightness and selected color are saved automatically
   - Changes persist after reboot
 - **Systemd service** for automatic startup
-- **Version displayed** on screen at startup for 3 seconds
+- **Startup display** shows local IP address and version for 5 seconds
+  - Useful for SSH access without connecting a monitor
 - **Multi-language support** via locale files (Italian and English included)
+  - Both compile-time (UI messages) and runtime (date/time formatting)
 
 ### Available Colors
 
@@ -91,7 +96,7 @@ The clock supports 10 predefined colors + AUTO mode:
 
 ### Configuration
 
-The `/root/config-simple.json` file contains all settings:
+The `/root/clock-config.json` file contains all settings:
 
 ```json
 {
@@ -107,16 +112,17 @@ The `/root/config-simple.json` file contains all settings:
     // ... other colors
   ],
   "colorTransition": {
-    "enabled": true,             // Enable transition in AUTO mode
-    "intervalMinutes": 120,      // Minutes between color changes
-    "transitionDurationSeconds": 30  // Transition duration
-  }
-}
+    "enabled": true,             // Enable smooth transitions in AUTO mode
+    "intervalMinutes": 2,        // Minutes between color changes
+    "durationMs": 1000           // Transition duration in milliseconds
+  },
+  "dateFormat": "%a %d %b",      // Date format (strftime)
+  "timeFormat": "%H:%M:%S"       // Time format (strftime)
 ```
 
 **How to modify colors:**
 
-1. Edit `/root/config-simple.json` on the Raspberry Pi
+1. Edit `/root/clock-config.json` on the Raspberry Pi
 2. Modify the RGB values (0-255) for each color
 3. You can add/remove colors from the array
 4. Restart the service: `systemctl restart led-clock.service`
@@ -125,6 +131,21 @@ The `/root/config-simple.json` file contains all settings:
 
 1. Modify the `"brightness"` value in the config (10-100)
 2. Or use the button and the value will be saved automatically
+
+**How to adjust color transitions:**
+
+1. Edit `colorTransition.intervalMinutes` - how long each color is displayed (in minutes)
+2. Edit `colorTransition.durationMs` - how long the transition animation lasts (in milliseconds)
+3. Example: `intervalMinutes: 2` with `durationMs: 1000` means each color is shown for 2 minutes, with a 1-second smooth transition to the next color
+
+**How to customize date/time format:**
+
+1. Edit `dateFormat` and `timeFormat` using [strftime format codes](https://man7.org/linux/man-pages/man3/strftime.3.html)
+2. Examples:
+   - `"%a %d %b"` → "Mon 15 Dec"
+   - `"%d/%m/%Y"` → "15/12/2024"
+   - `"%H:%M:%S"` → "16:34:42"
+   - `"%I:%M %p"` → "04:34 PM"
 
 ### Installation
 
@@ -199,6 +220,47 @@ make LOCALE=en_US
 - **GPIO 19** connected to a momentary push button (pull-up enabled internally)
 - **Short press**: Increase brightness (10% steps)
 - **Long press**: Cycle through colors or return to AUTO mode
+
+### Useful Commands
+
+**Service management:**
+```bash
+# Check service status
+systemctl status led-clock.service
+
+# Restart the service
+systemctl restart led-clock.service
+
+# Stop the service
+systemctl stop led-clock.service
+
+# Start the service
+systemctl start led-clock.service
+
+# View logs in real-time
+journalctl -u led-clock.service -f
+
+# View recent logs
+journalctl -u led-clock.service -n 50
+```
+
+**Rebuild and update:**
+```bash
+cd /root/rpi-matrix-v2
+make clean && make LOCALE=it_IT
+systemctl stop led-clock.service
+cp build/led-clock /root/clock-full
+systemctl start led-clock.service
+```
+
+**Update configuration:**
+```bash
+# Edit config file
+nano /root/clock-config.json
+
+# Restart to apply changes
+systemctl restart led-clock.service
+```
 
 ## CAD Files
 

@@ -15,6 +15,10 @@ public:
     int fixed_color;
     std::vector<NamedColor> colors;
     bool colorTransitionEnabled;
+    int colorTransitionIntervalMinutes; // Minutes between color changes
+    int colorTransitionDurationMs;       // Milliseconds for transition animation
+    std::string dateFormat;
+    std::string timeFormat;
 
     Config();
     bool load(const char* path);

@@ -5,8 +5,10 @@
 
 using json = nlohmann::json;
 
-Config::Config() : brightness(50), fixed_color(-1), colorTransitionEnabled(true) {
-    // Default colors
+Config::Config() : brightness(50), fixed_color(-1), colorTransitionEnabled(true),
+                   colorTransitionIntervalMinutes(2), colorTransitionDurationMs(1000),
+                   dateFormat("%a %d %b"), timeFormat("%H:%M:%S") {
+    // Default: 2 minutes interval, 1 second transition
     colors = {
         {"GIALLO", 255, 220, 0},
         {"ROSSO", 255, 0, 0},
@@ -45,9 +47,21 @@ bool Config::load(const char* path) {
         }
 
         // Load colorTransition
-        if (j.contains("colorTransition") && j["colorTransition"].contains("enabled")) {
-            colorTransitionEnabled = j["colorTransition"]["enabled"];
+        if (j.contains("colorTransition")) {
+            if (j["colorTransition"].contains("enabled")) {
+                colorTransitionEnabled = j["colorTransition"]["enabled"];
+            }
+            if (j["colorTransition"].contains("intervalMinutes")) {
+                colorTransitionIntervalMinutes = j["colorTransition"]["intervalMinutes"];
+            }
+            if (j["colorTransition"].contains("durationMs")) {
+                colorTransitionDurationMs = j["colorTransition"]["durationMs"];
+            }
         }
+
+        // Load date and time formats
+        if (j.contains("dateFormat")) dateFormat = j["dateFormat"];
+        if (j.contains("timeFormat")) timeFormat = j["timeFormat"];
 
         return true;
     } catch (const std::exception& e) {
@@ -75,8 +89,12 @@ bool Config::save(const char* path) {
 
         // Save colorTransition
         j["colorTransition"]["enabled"] = colorTransitionEnabled;
-        j["colorTransition"]["intervalMinutes"] = 120;
-        j["colorTransition"]["transitionDurationSeconds"] = 30;
+        j["colorTransition"]["intervalMinutes"] = colorTransitionIntervalMinutes;
+        j["colorTransition"]["durationMs"] = colorTransitionDurationMs;
+
+        // Save date and time formats
+        j["dateFormat"] = dateFormat;
+        j["timeFormat"] = timeFormat;
 
         // Write to file
         std::ofstream file(path);
