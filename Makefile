@@ -6,7 +6,7 @@ LOCALE ?= it_IT
 # Compiler and flags
 CXX = g++
 CXXFLAGS = -O3 -Wall -Wextra -std=c++11 -DLOCALE_FILE=\"locale/$(LOCALE).h\"
-INCLUDES = -I/root/rpi-rgb-led-matrix/include -Iinclude
+INCLUDES = -I/root/rpi-rgb-led-matrix/include -Iinclude -I.
 LDFLAGS = -L/root/rpi-rgb-led-matrix/lib
 LIBS = /root/rpi-rgb-led-matrix/lib/librgbmatrix.a -lrt -lm -lpthread -lstdc++
 
@@ -46,7 +46,7 @@ clean:
 # Install (copy to /root and restart service)
 install: $(TARGET)
 	cp $(TARGET) /root/clock-full
-	cp $(CONFIG_DIR)/config-simple.json /root/config-simple.json
+	cp $(CONFIG_DIR)/clock-config.json /root/clock-config.json
 	systemctl restart led-clock.service
 	@echo "Installation complete"
 

@@ -4,6 +4,8 @@
 #include "led-matrix.h"
 #include "graphics.h"
 #include "version.h"
+#include "Config.h"
+#include "GPIOButton.h"
 
 // Include locale file based on LOCALE_FILE define (set in Makefile)
 #ifndef LOCALE_FILE
@@ -16,18 +18,12 @@
 #include <cstdio>
 #include <csignal>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <fstream>
 #include <string>
-#include <vector>
 
 using namespace rgb_matrix;
 
 #define GPIO_NUM 19
-#define DEBOUNCE_MS 100
-#define LONG_PRESS_MS 1000
-#define CONFIG_PATH "/root/config-simple.json"
+#define CONFIG_PATH "/root/clock-config.json"
 #define COLOR_DISPLAY_MS 2000
 #define VERSION_DISPLAY_MS 3000
 
@@ -36,169 +32,56 @@ static void InterruptHandler(int signo) {
     interrupt_received = true;
 }
 
-// Simple color structure
-struct NamedColor {
-    std::string name;
-    uint8_t r, g, b;
-};
+// Global state for button callbacks
+Config* g_config = nullptr;
+RGBMatrix* g_matrix = nullptr;
+long* g_message_display_until = nullptr;
+std::string* g_message_text = nullptr;
+Color* g_message_color = nullptr;
 
-// Configuration structure
-struct Config {
-    int brightness;
-    int fixed_color;
-    std::vector<NamedColor> colors;
-    bool colorTransitionEnabled;
-};
-
-// GPIO helper functions using pinctrl
-bool gpio_setup(int pin) {
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "pinctrl set %d ip pu", pin);
-    return system(cmd) == 0;
+// Get current time in milliseconds
+long getCurrentTimeMs() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-int gpio_read(int pin) {
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "pinctrl lev %d 2>/dev/null", pin);
+// Short press callback: cycle brightness
+void onShortPress() {
+    g_config->brightness += 10;
+    if (g_config->brightness > 100) g_config->brightness = 10;
 
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) return -1;
+    g_matrix->SetBrightness(g_config->brightness);
+    g_config->save(CONFIG_PATH);
 
-    char buffer[128];
-    if (fgets(buffer, sizeof(buffer), pipe)) {
-        pclose(pipe);
-        // Output format: "1" or "0"
-        return (strchr(buffer, '1') != NULL) ? 1 : 0;
-    }
+    // Show brightness message
+    char brightness_msg[16];
+    snprintf(brightness_msg, sizeof(brightness_msg), "%d%%", g_config->brightness);
+    *g_message_text = brightness_msg;
+    *g_message_color = Color(255, 255, 255); // White for brightness
+    *g_message_display_until = getCurrentTimeMs() + COLOR_DISPLAY_MS;
 
-    pclose(pipe);
-    return -1;
+    printf("💡 Brightness: %d%%\n", g_config->brightness);
 }
 
-// Simple JSON parser for our config
-bool loadConfig(const char* path, Config& config) {
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        fprintf(stderr, "Failed to open config file: %s\n", path);
-        return false;
+// Long press callback: cycle colors
+void onLongPress() {
+    g_config->fixed_color++;
+    if (g_config->fixed_color >= (int)g_config->colors.size()) {
+        g_config->fixed_color = -1; // Back to AUTO
+        *g_message_text = Locale::MSG_AUTO;
+        *g_message_color = Color(255, 255, 255); // White for AUTO
+        g_config->colorTransitionEnabled = true;
+    } else {
+        const NamedColor& nc = g_config->colors[g_config->fixed_color];
+        *g_message_text = nc.name;
+        *g_message_color = Color(nc.r, nc.g, nc.b); // Use the selected color
+        g_config->colorTransitionEnabled = false;
     }
 
-    // Read entire file
-    std::string content((std::istreambuf_iterator<char>(file)),
-                         std::istreambuf_iterator<char>());
-    file.close();
-
-    // Parse brightness
-    size_t pos = content.find("\"brightness\"");
-    if (pos != std::string::npos) {
-        size_t colon = content.find(":", pos);
-        size_t comma = content.find_first_of(",}", colon);
-        std::string value = content.substr(colon + 1, comma - colon - 1);
-        config.brightness = std::stoi(value);
-    }
-
-    // Parse fixed_color
-    pos = content.find("\"fixed_color\"");
-    if (pos != std::string::npos) {
-        size_t colon = content.find(":", pos);
-        size_t comma = content.find_first_of(",}", colon);
-        std::string value = content.substr(colon + 1, comma - colon - 1);
-        config.fixed_color = std::stoi(value);
-    }
-
-    // Parse colors array
-    config.colors.clear();
-    pos = content.find("\"colors\"");
-    if (pos != std::string::npos) {
-        size_t arrayStart = content.find("[", pos);
-        size_t arrayEnd = content.find("]", arrayStart);
-        std::string colorsArray = content.substr(arrayStart + 1, arrayEnd - arrayStart - 1);
-
-        size_t objStart = 0;
-        while ((objStart = colorsArray.find("{", objStart)) != std::string::npos) {
-            size_t objEnd = colorsArray.find("}", objStart);
-            std::string colorObj = colorsArray.substr(objStart, objEnd - objStart + 1);
-
-            NamedColor nc;
-
-            // Parse name
-            size_t namePos = colorObj.find("\"name\"");
-            if (namePos != std::string::npos) {
-                size_t nameStart = colorObj.find("\"", namePos + 6) + 1;
-                size_t nameEnd = colorObj.find("\"", nameStart);
-                nc.name = colorObj.substr(nameStart, nameEnd - nameStart);
-            }
-
-            // Parse r
-            size_t rPos = colorObj.find("\"r\"");
-            if (rPos != std::string::npos) {
-                size_t colon = colorObj.find(":", rPos);
-                size_t comma = colorObj.find_first_of(",}", colon);
-                nc.r = std::stoi(colorObj.substr(colon + 1, comma - colon - 1));
-            }
-
-            // Parse g
-            size_t gPos = colorObj.find("\"g\"");
-            if (gPos != std::string::npos) {
-                size_t colon = colorObj.find(":", gPos);
-                size_t comma = colorObj.find_first_of(",}", colon);
-                nc.g = std::stoi(colorObj.substr(colon + 1, comma - colon - 1));
-            }
-
-            // Parse b
-            size_t bPos = colorObj.find("\"b\"");
-            if (bPos != std::string::npos) {
-                size_t colon = colorObj.find(":", bPos);
-                size_t comma = colorObj.find_first_of(",}", colon);
-                nc.b = std::stoi(colorObj.substr(colon + 1, comma - colon - 1));
-            }
-
-            config.colors.push_back(nc);
-            objStart = objEnd + 1;
-        }
-    }
-
-    // Parse colorTransition.enabled
-    pos = content.find("\"enabled\"");
-    if (pos != std::string::npos) {
-        size_t colon = content.find(":", pos);
-        std::string value = content.substr(colon + 1, 10);
-        config.colorTransitionEnabled = (value.find("true") != std::string::npos);
-    }
-
-    return true;
-}
-
-// Save config
-bool saveConfig(const char* path, const Config& config) {
-    FILE* file = fopen(path, "w");
-    if (!file) {
-        fprintf(stderr, "Failed to open config file for writing: %s\n", path);
-        return false;
-    }
-
-    fprintf(file, "{\n");
-    fprintf(file, "  \"brightness\": %d,\n", config.brightness);
-    fprintf(file, "  \"fixed_color\": %d,\n", config.fixed_color);
-    fprintf(file, "  \"colors\": [\n");
-
-    for (size_t i = 0; i < config.colors.size(); i++) {
-        const NamedColor& nc = config.colors[i];
-        fprintf(file, "    { \"name\": \"%s\", \"r\": %d, \"g\": %d, \"b\": %d }%s\n",
-                nc.name.c_str(), nc.r, nc.g, nc.b,
-                (i < config.colors.size() - 1) ? "," : "");
-    }
-
-    fprintf(file, "  ],\n");
-    fprintf(file, "  \"colorTransition\": {\n");
-    fprintf(file, "    \"enabled\": %s,\n", config.colorTransitionEnabled ? "true" : "false");
-    fprintf(file, "    \"intervalMinutes\": 120,\n");
-    fprintf(file, "    \"transitionDurationSeconds\": 30\n");
-    fprintf(file, "  }\n");
-    fprintf(file, "}\n");
-
-    fclose(file);
-    return true;
+    *g_message_display_until = getCurrentTimeMs() + COLOR_DISPLAY_MS;
+    g_config->save(CONFIG_PATH);
+    printf("🎨 Color: %s\n", g_message_text->c_str());
 }
 
 int main(int argc, char *argv[]) {
@@ -207,24 +90,33 @@ int main(int argc, char *argv[]) {
     printf("  LED Matrix Clock v%s\n", VERSION_STRING);
     printf("═══════════════════════════════════════\n\n");
 
-    // Load config
+    // Load config using Config class
     Config config;
-    if (!loadConfig(CONFIG_PATH, config)) {
-        fprintf(stderr, "Using default config\n");
-        config.brightness = 50;
-        config.fixed_color = -1;
-        config.colors = {
-            {"GIALLO", 255, 220, 0},
-            {"ROSSO", 255, 0, 0},
-            {"VERDE", 0, 255, 0},
-            {"BLU", 0, 0, 255},
-            {"BIANCO", 255, 255, 255}
-        };
-        config.colorTransitionEnabled = true;
-    }
+    bool config_loaded = config.load(CONFIG_PATH);
 
-    printf("✓ Config loaded: brightness=%d, fixed_color=%d, colors=%zu\n",
-           config.brightness, config.fixed_color, config.colors.size());
+    // Print current configuration
+    if (config_loaded) {
+        printf("✓ Configuration loaded from %s\n", CONFIG_PATH);
+    } else {
+        printf("⚠ Failed to load %s, using default configuration\n", CONFIG_PATH);
+    }
+    printf("  Brightness: %d%%\n", config.brightness);
+    printf("  Fixed color: %d ", config.fixed_color);
+    if (config.fixed_color == -1) {
+        printf("(AUTO mode)\n");
+    } else if (config.fixed_color >= 0 && config.fixed_color < (int)config.colors.size()) {
+        const NamedColor& nc = config.colors[config.fixed_color];
+        printf("(%s - RGB(%d, %d, %d))\n", nc.name.c_str(), nc.r, nc.g, nc.b);
+    } else {
+        printf("(invalid)\n");
+    }
+    printf("  Color transition: %s\n", config.colorTransitionEnabled ? "enabled" : "disabled");
+    printf("  Available colors: %zu\n", config.colors.size());
+    for (size_t i = 0; i < config.colors.size(); i++) {
+        const NamedColor& nc = config.colors[i];
+        printf("    %zu. %s - RGB(%d, %d, %d)\n", i, nc.name.c_str(), nc.r, nc.g, nc.b);
+    }
+    printf("\n");
 
     // Load fonts
     rgb_matrix::Font font_large;
@@ -268,93 +160,42 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, InterruptHandler);
     signal(SIGINT, InterruptHandler);
 
-    // Setup GPIO button
-    int last_gpio_value = 1;
-    long button_press_start = 0;
-    bool button_was_pressed = false;
-
-    if (!gpio_setup(GPIO_NUM)) {
-        fprintf(stderr, "Failed to setup GPIO %d\n", GPIO_NUM);
-        return 1;
-    }
-    printf("✓ GPIO %d configured with pull-up\n", GPIO_NUM);
-
     // Create canvases (for double buffering and text measurement)
     FrameCanvas *offscreen_canvas = matrix->CreateFrameCanvas();
     FrameCanvas *temp_canvas = matrix->CreateFrameCanvas();
 
-    // Get current time for version display
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    long startup_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-
     // Message display state - show version at startup
+    long startup_time = getCurrentTimeMs();
     long message_display_until = startup_time + VERSION_DISPLAY_MS;
     std::string message_text = std::string(Locale::MSG_VERSION_PREFIX) + std::string(VERSION_STRING);
     Color message_color(255, 255, 255);
+
+    // Setup global pointers for button callbacks
+    g_config = &config;
+    g_matrix = matrix;
+    g_message_display_until = &message_display_until;
+    g_message_text = &message_text;
+    g_message_color = &message_color;
+
+    // Setup GPIO button using GPIOButton class
+    GPIOButton button(GPIO_NUM);
+    if (!button.setup()) {
+        fprintf(stderr, "Failed to setup GPIO %d\n", GPIO_NUM);
+        return 1;
+    }
+    button.onShortPress(onShortPress);
+    button.onLongPress(onLongPress);
+    printf("✓ GPIO %d configured with pull-up\n", GPIO_NUM);
 
     printf("Clock started.\n");
     printf("  Short press: Cycle brightness (10%% - 100%%)\n");
     printf("  Long press: Cycle colors / AUTO mode\n");
 
     while (!interrupt_received) {
-        struct timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        long current_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+        long current_time = getCurrentTimeMs();
 
-        // Check button state
-        int gpio_value = gpio_read(GPIO_NUM);
-        if (gpio_value >= 0) {
-            // Detect falling edge (button pressed)
-            if (last_gpio_value == 1 && gpio_value == 0) {
-                button_press_start = current_time;
-                button_was_pressed = true;
-            }
-            // Detect rising edge (button released)
-            else if (last_gpio_value == 0 && gpio_value == 1 && button_was_pressed) {
-                long press_duration = current_time - button_press_start;
-
-                if (press_duration >= LONG_PRESS_MS) {
-                    // Long press: cycle colors
-                    config.fixed_color++;
-                    if (config.fixed_color >= (int)config.colors.size()) {
-                        config.fixed_color = -1; // Back to AUTO
-                        message_text = Locale::MSG_AUTO;
-                        message_color = Color(255, 255, 255); // White for AUTO
-                        config.colorTransitionEnabled = true;
-                    } else {
-                        const NamedColor& nc = config.colors[config.fixed_color];
-                        message_text = nc.name;
-                        message_color = Color(nc.r, nc.g, nc.b); // Use the selected color
-                        config.colorTransitionEnabled = false;
-                    }
-
-                    message_display_until = current_time + COLOR_DISPLAY_MS;
-                    saveConfig(CONFIG_PATH, config);
-                    printf("🎨 Color: %s\n", message_text.c_str());
-                }
-                else if (press_duration >= DEBOUNCE_MS) {
-                    // Short press: cycle brightness
-                    config.brightness += 10;
-                    if (config.brightness > 100) config.brightness = 10;
-
-                    matrix->SetBrightness(config.brightness);
-                    saveConfig(CONFIG_PATH, config);
-
-                    // Show brightness message
-                    char brightness_msg[16];
-                    snprintf(brightness_msg, sizeof(brightness_msg), "%d%%", config.brightness);
-                    message_text = brightness_msg;
-                    message_color = Color(255, 255, 255); // White for brightness
-                    message_display_until = current_time + COLOR_DISPLAY_MS;
-
-                    printf("💡 Brightness: %d%%\n", config.brightness);
-                }
-
-                button_was_pressed = false;
-            }
-            last_gpio_value = gpio_value;
-        }
+        // Poll button for press events
+        button.poll(current_time);
 
         // Clear canvas
         offscreen_canvas->Clear();
