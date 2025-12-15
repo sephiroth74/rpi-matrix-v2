@@ -1,0 +1,21 @@
+{
+  "brightness": 50,
+  "fixed_color": -1,
+  "colors": [
+    { "name": "ROSSO", "r": 255, "g": 0, "b": 0 },
+    { "name": "ARANCIO", "r": 255, "g": 128, "b": 0 },
+    { "name": "GIALLO", "r": 255, "g": 220, "b": 0 },
+    { "name": "VERDE", "r": 0, "g": 255, "b": 0 },
+    { "name": "CIANO", "r": 0, "g": 255, "b": 255 },
+    { "name": "BLU", "r": 0, "g": 0, "b": 255 },
+    { "name": "AZZURRO", "r": 173, "g": 216, "b": 230 },
+    { "name": "VIOLA", "r": 128, "g": 0, "b": 255 },
+    { "name": "MAGENTA", "r": 255, "g": 0, "b": 255 },
+    { "name": "BIANCO", "r": 255, "g": 255, "b": 255 }
+  ],
+  "colorTransition": {
+    "enabled": true,
+    "intervalMinutes": 120,
+    "transitionDurationSeconds": 30
+  }
+}

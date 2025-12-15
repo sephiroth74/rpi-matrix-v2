@@ -56,19 +56,55 @@
 - I recommend installing [DietPi](https://dietpi.com) instead of the official OS. It's much faster.
 - [Prepare your RPI for headless installation](https://dietpi.com/docs/install/) and remote ssh.
 
-On your local machine:
+### Features
 
-1. Update `sync.config.json`
-2. Run:
+- **Display centrato** con formato italiano (DOM 15 DIC + HH:MM:SS)
+- **Controllo brightness** con pulsante fisico (GPIO 19)
+  - **Short press (< 1s)**: Cambia luminosità 10% → 100%
+- **Selezione colori** con pulsante fisico
+  - **Long press (≥ 1s)**: Cicla tra 10 colori + modalità AUTO
+  - Il nome del colore viene mostrato brevemente nel colore selezionato
+- **Configurazione persistente** salvata in `/root/config-simple.json`
+- **Service systemd** per avvio automatico
 
+### Colori disponibili
+
+1. ROSSO, 2. ARANCIO, 3. GIALLO, 4. VERDE, 5. CIANO, 6. BLU, 7. AZZURRO, 8. VIOLA, 9. MAGENTA, 10. BIANCO, 11. AUTO (transizione automatica)
+
+### Installation
+
+1. Clone this repository on your Raspberry Pi
+2. Install dependencies:
 ```bash
-$ bun install
-$ bun run build
-$ bun run sync
+# Install rpi-rgb-led-matrix library
+cd /root
+git clone https://github.com/hzeller/rpi-rgb-led-matrix.git
+cd rpi-rgb-led-matrix
+make
+
+# Install build tools if not present
+apt-get install -y g++ make
 ```
 
-3. SSH into your RPI and run `/root/clock`. This should run the program.
-4. You can [setup a systemd service](https://domoticproject.com/creating-raspberry-pi-service/) to run it in the background.
+3. Build and install the clock:
+```bash
+cd /path/to/rpi-matrix-v2
+make
+make install
+```
+
+4. The clock will start automatically on boot. You can manage it with:
+```bash
+systemctl status led-clock.service   # Check status
+systemctl restart led-clock.service  # Restart
+journalctl -u led-clock.service -f   # View logs
+```
+
+### Button Usage
+
+- **GPIO 19** connected to a momentary push button (pull-up enabled internally)
+- **Short press**: Increase brightness (10% steps)
+- **Long press**: Cycle through colors or return to AUTO mode
 
 ## CAD Files
 

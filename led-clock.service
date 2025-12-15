@@ -1,0 +1,16 @@
+[Unit]
+Description=LED Matrix Clock with Button Control
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+ExecStart=/root/clock-full
+WorkingDirectory=/root
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+{
+  "colorTransition": {
+    "enabled": true,
+    "intervalMinutes": 2,
+    "transitionDurationSeconds": 30,
+    "colors": [
+      { "r": 255, "g": 0, "b": 0 },
+      { "r": 255, "g": 100, "b": 0 },
+      { "r": 255, "g": 220, "b": 0 },
+      { "r": 0, "g": 255, "b": 150 },
+      { "r": 52, "g": 11, "b": 242 },
+      { "r": 150, "g": 0, "b": 255 },
+      { "r": 255, "g": 0, "b": 100 }
+    ]
+  },
+  "letterClock": {
+    "dateColor": { "r": 255, "g": 220, "b": 0 },
+    "timeColor": { "r": 255, "g": 220, "b": 0 }
+  },
+  "analogClock": {
+    "hourHandColor": { "r": 255, "g": 0, "b": 0 },
+    "minuteHandColor": { "r": 0, "g": 255, "b": 0 },
+    "secondHandColor": { "r": 255, "g": 255, "b": 0 },
+    "markersColor": { "r": 255, "g": 255, "b": 255 },
+    "dateColor": { "r": 255, "g": 255, "b": 255 }
+  }
+}
