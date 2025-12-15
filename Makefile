@@ -3,7 +3,7 @@
 # Compiler and flags
 CXX = g++
 CXXFLAGS = -O3 -Wall -Wextra -std=c++11
-INCLUDES = -I/root/rpi-rgb-led-matrix/include
+INCLUDES = -I/root/rpi-rgb-led-matrix/include -Iinclude
 LDFLAGS = -L/root/rpi-rgb-led-matrix/lib
 LIBS = /root/rpi-rgb-led-matrix/lib/librgbmatrix.a -lrt -lm -lpthread -lstdc++
 
@@ -16,7 +16,7 @@ CONFIG_DIR = config
 TARGET = $(BUILD_DIR)/led-clock
 
 # Source files
-SOURCES = $(SRC_DIR)/main.cpp
+SOURCES = $(wildcard $(SRC_DIR)/*.cpp)
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 
 # Default target

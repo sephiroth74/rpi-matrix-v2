@@ -196,6 +196,11 @@ bool saveConfig(const char* path, const Config& config) {
 }
 
 int main(int argc, char *argv[]) {
+    // Print version
+    printf("═══════════════════════════════════════\n");
+    printf("  LED Matrix Clock v%s\n", VERSION_STRING);
+    printf("═══════════════════════════════════════\n\n");
+
     // Load config
     Config config;
     if (!loadConfig(CONFIG_PATH, config)) {
@@ -272,9 +277,14 @@ int main(int argc, char *argv[]) {
     FrameCanvas *offscreen_canvas = matrix->CreateFrameCanvas();
     FrameCanvas *temp_canvas = matrix->CreateFrameCanvas();
 
-    // Message display state
-    long message_display_until = 0;
-    std::string message_text = "";
+    // Get current time for version display
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    long startup_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+
+    // Message display state - show version at startup
+    long message_display_until = startup_time + VERSION_DISPLAY_MS;
+    std::string message_text = "v" + std::string(VERSION_STRING);
     Color message_color(255, 255, 255);
 
     printf("Clock started.\n");
