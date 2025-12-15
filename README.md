@@ -1,5 +1,7 @@
 # 3D Printed Raspberry Pi Matrix Clock
 
+> **Note**: This is a C++ rewrite of the [original TypeScript/Bun version](https://github.com/alessandrobattisti/rpi-matrix-clock). The C++ version offers better performance, lower memory footprint, and native integration with the LED matrix and GPIO library.
+
 ![](assets/final.jpeg)
 
 ## Hardware
