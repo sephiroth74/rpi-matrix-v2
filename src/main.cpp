@@ -5,6 +5,12 @@
 #include "graphics.h"
 #include "version.h"
 
+// Include locale file based on LOCALE_FILE define (set in Makefile)
+#ifndef LOCALE_FILE
+#define LOCALE_FILE "locale/en_US.h"
+#endif
+#include LOCALE_FILE
+
 #include <unistd.h>
 #include <ctime>
 #include <cstdio>
@@ -284,7 +290,7 @@ int main(int argc, char *argv[]) {
 
     // Message display state - show version at startup
     long message_display_until = startup_time + VERSION_DISPLAY_MS;
-    std::string message_text = "v" + std::string(VERSION_STRING);
+    std::string message_text = std::string(Locale::MSG_VERSION_PREFIX) + std::string(VERSION_STRING);
     Color message_color(255, 255, 255);
 
     printf("Clock started.\n");
@@ -313,7 +319,7 @@ int main(int argc, char *argv[]) {
                     config.fixed_color++;
                     if (config.fixed_color >= (int)config.colors.size()) {
                         config.fixed_color = -1; // Back to AUTO
-                        message_text = "AUTO";
+                        message_text = Locale::MSG_AUTO;
                         message_color = Color(255, 255, 255); // White for AUTO
                         config.colorTransitionEnabled = true;
                     } else {
@@ -376,15 +382,12 @@ int main(int argc, char *argv[]) {
             time_t now = time(NULL);
             struct tm *tm_info = localtime(&now);
 
-            // Format date
+            // Format date using locale
             char date_buffer[32];
-            const char* day_names[] = {"DOM", "LUN", "MAR", "MER", "GIO", "VEN", "SAB"};
-            const char* month_names[] = {"GEN", "FEB", "MAR", "APR", "MAG", "GIU",
-                                          "LUG", "AGO", "SET", "OTT", "NOV", "DIC"};
-            snprintf(date_buffer, sizeof(date_buffer), "%s %d %s",
-                     day_names[tm_info->tm_wday],
+            snprintf(date_buffer, sizeof(date_buffer), Locale::DATE_FORMAT,
+                     Locale::DAY_NAMES[tm_info->tm_wday],
                      tm_info->tm_mday,
-                     month_names[tm_info->tm_mon]);
+                     Locale::MONTH_NAMES[tm_info->tm_mon]);
 
             // Format time
             char time_buffer[16];

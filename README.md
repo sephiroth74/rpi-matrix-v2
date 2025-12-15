@@ -58,18 +58,73 @@
 
 ### Features
 
-- **Display centrato** con formato italiano (DOM 15 DIC + HH:MM:SS)
-- **Controllo brightness** con pulsante fisico (GPIO 19)
-  - **Short press (< 1s)**: Cambia luminosità 10% → 100%
-- **Selezione colori** con pulsante fisico
-  - **Long press (≥ 1s)**: Cicla tra 10 colori + modalità AUTO
-  - Il nome del colore viene mostrato brevemente nel colore selezionato
-- **Configurazione persistente** salvata in `/root/config-simple.json`
-- **Service systemd** per avvio automatico
+- **Centered display** with localized date format (e.g., MON 15 DEC + HH:MM:SS)
+- **Brightness control** via physical button (GPIO 19)
+  - **Short press (< 1s)**: Cycle brightness in 10% steps (10% → 20% → ... → 100% → 10%)
+  - Briefly displays "XX%" on screen when brightness changes
+- **Color selection** via physical button
+  - **Long press (≥ 1s)**: Cycle through 10 colors + AUTO mode
+  - Color name is displayed for 2 seconds in the selected color
+  - AUTO mode: automatic transition between colors (rainbow effect)
+- **Persistent configuration** saved to `/root/config-simple.json`
+  - Brightness and selected color are saved automatically
+  - Changes persist after reboot
+- **Systemd service** for automatic startup
+- **Version displayed** on screen at startup for 3 seconds
+- **Multi-language support** via locale files (Italian and English included)
 
-### Colori disponibili
+### Available Colors
 
-1. ROSSO, 2. ARANCIO, 3. GIALLO, 4. VERDE, 5. CIANO, 6. BLU, 7. AZZURRO, 8. VIOLA, 9. MAGENTA, 10. BIANCO, 11. AUTO (transizione automatica)
+The clock supports 10 predefined colors + AUTO mode:
+
+1. **ROSSO** (255, 0, 0) - Pure red
+2. **ARANCIO** (255, 128, 0) - Orange
+3. **GIALLO** (255, 220, 0) - Yellow (default in AUTO)
+4. **VERDE** (0, 255, 0) - Pure green
+5. **CIANO** (0, 255, 255) - Cyan
+6. **BLU** (0, 0, 255) - Pure blue
+7. **AZZURRO** (173, 216, 255) - Light blue
+8. **VIOLA** (128, 0, 255) - Purple
+9. **MAGENTA** (255, 0, 255) - Magenta
+10. **BIANCO** (255, 255, 255) - White
+11. **AUTO** - Automatic transition between all colors (fixed_color = -1)
+
+### Configuration
+
+The `/root/config-simple.json` file contains all settings:
+
+```json
+{
+  "brightness": 50,              // Current brightness (10-100)
+  "fixed_color": -1,             // Color index (-1 = AUTO, 0-9 = fixed color)
+  "colors": [                    // Array of available colors
+    {
+      "name": "ROSSO",           // Name shown on display
+      "r": 255,                  // Red component (0-255)
+      "g": 0,                    // Green component (0-255)
+      "b": 0                     // Blue component (0-255)
+    },
+    // ... other colors
+  ],
+  "colorTransition": {
+    "enabled": true,             // Enable transition in AUTO mode
+    "intervalMinutes": 120,      // Minutes between color changes
+    "transitionDurationSeconds": 30  // Transition duration
+  }
+}
+```
+
+**How to modify colors:**
+
+1. Edit `/root/config-simple.json` on the Raspberry Pi
+2. Modify the RGB values (0-255) for each color
+3. You can add/remove colors from the array
+4. Restart the service: `systemctl restart led-clock.service`
+
+**How to change default brightness:**
+
+1. Modify the `"brightness"` value in the config (10-100)
+2. Or use the button and the value will be saved automatically
 
 ### Installation
 
@@ -99,6 +154,45 @@ systemctl status led-clock.service   # Check status
 systemctl restart led-clock.service  # Restart
 journalctl -u led-clock.service -f   # View logs
 ```
+
+### Localization
+
+The clock supports multiple languages through locale files. By default, it uses Italian (it_IT).
+
+**Available locales:**
+- `it_IT` - Italian (default)
+- `en_US` - English
+
+**How to change the language:**
+
+1. Open the Makefile and set the `LOCALE` variable:
+```makefile
+LOCALE = en_US
+```
+
+2. Rebuild the project:
+```bash
+make clean
+make
+make install
+```
+
+Alternatively, you can build with a specific locale without editing the Makefile:
+```bash
+make LOCALE=en_US
+```
+
+**What changes with locale:**
+- Day names (e.g., DOM → SUN, LUN → MON)
+- Month names (e.g., GEN → JAN, DIC → DEC)
+- UI messages (e.g., AUTO, version prefix)
+
+**Adding a new locale:**
+
+1. Create a new file in `locale/` (e.g., `locale/fr_FR.h`)
+2. Copy the structure from `locale/en_US.h`
+3. Translate the day names, month names, and messages
+4. Build with: `make LOCALE=fr_FR`
 
 ### Button Usage
 
