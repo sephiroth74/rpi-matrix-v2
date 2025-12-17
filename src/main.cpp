@@ -6,6 +6,8 @@
 #include "version.h"
 #include "Config.h"
 #include "GPIOButton.h"
+#include "Animator.h"
+#include "BorderSnakeAnimation.h"
 
 // Include locale file based on LOCALE_FILE define (set in Makefile)
 #ifndef LOCALE_FILE
@@ -25,16 +27,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <vector>
+#include <sstream>
 
 using namespace rgb_matrix;
 
-#define GPIO_NUM 19
-#define CONFIG_PATH "/root/clock-config.json"
-#define COLOR_DISPLAY_MS 2000
-#define VERSION_DISPLAY_MS 5000
-
 volatile bool interrupt_received = false;
-static void InterruptHandler(int signo) {
+static void InterruptHandler(int) {
     interrupt_received = true;
 }
 
@@ -44,6 +43,9 @@ RGBMatrix* g_matrix = nullptr;
 long* g_message_display_until = nullptr;
 std::string* g_message_text = nullptr;
 Color* g_message_color = nullptr;
+Animator* g_animator = nullptr;
+BorderSnakeAnimation* g_snakeAnimation = nullptr;
+bool g_showing_auto_transition = false;
 
 // Get current time in milliseconds
 long getCurrentTimeMs() {
@@ -84,8 +86,8 @@ std::string getLocalIP() {
 
 // Short press callback: cycle brightness
 void onShortPress() {
-    g_config->brightness += 10;
-    if (g_config->brightness > 100) g_config->brightness = 10;
+    g_config->brightness += BRIGHTNESS_INC_STEP;
+    if (g_config->brightness > MAX_BRIGHTNESS) g_config->brightness = MIN_BRIGHTNESS;
 
     g_matrix->SetBrightness(g_config->brightness);
     g_config->save(CONFIG_PATH);
@@ -94,7 +96,13 @@ void onShortPress() {
     char brightness_msg[16];
     snprintf(brightness_msg, sizeof(brightness_msg), "%d%%", g_config->brightness);
     *g_message_text = brightness_msg;
-    *g_message_color = Color(255, 255, 255); // White for brightness
+
+    // Color warning for brightness > 100%
+    if (g_config->brightness > 100) {
+        *g_message_color = Color(255, 100, 0); // Orange warning for high brightness
+    } else {
+        *g_message_color = Color(255, 255, 255); // White for normal brightness
+    }
     *g_message_display_until = getCurrentTimeMs() + COLOR_DISPLAY_MS;
 
     printf("💡 Brightness: %d%%\n", g_config->brightness);
@@ -102,39 +110,66 @@ void onShortPress() {
 
 // Long press callback: cycle colors
 void onLongPress() {
+    // Get current color before changing
+    RGBColor fromColor;
+    if (g_config->fixed_color >= 0 && g_config->fixed_color < (int)g_config->colors.size()) {
+        const NamedColor& nc = g_config->colors[g_config->fixed_color];
+        fromColor = RGBColor(nc.r, nc.g, nc.b);
+    } else if (g_animator && g_animator->isAnimating()) {
+        // If animating, get the current animated color
+        fromColor = g_animator->update();
+    } else if (g_config->colors.size() > 0) {
+        // Fallback to first color
+        const NamedColor& nc = g_config->colors[0];
+        fromColor = RGBColor(nc.r, nc.g, nc.b);
+    } else {
+        fromColor = RGBColor(255, 220, 0);
+    }
+
+    // Cycle to next color
     g_config->fixed_color++;
     if (g_config->fixed_color >= (int)g_config->colors.size()) {
         g_config->fixed_color = -1; // Back to AUTO
         *g_message_text = Locale::MSG_AUTO;
-        *g_message_color = Color(255, 255, 255); // White for AUTO
         g_config->colorTransitionEnabled = true;
+        g_showing_auto_transition = true; // Flag to show AUTO message during transition
     } else {
         const NamedColor& nc = g_config->colors[g_config->fixed_color];
         *g_message_text = nc.name;
-        *g_message_color = Color(nc.r, nc.g, nc.b); // Use the selected color
         g_config->colorTransitionEnabled = false;
+        g_showing_auto_transition = false;
     }
 
-    *g_message_display_until = getCurrentTimeMs() + COLOR_DISPLAY_MS;
+    // Start transition animation to new color
+    RGBColor toColor;
+    if (g_config->fixed_color >= 0 && g_config->fixed_color < (int)g_config->colors.size()) {
+        const NamedColor& nc = g_config->colors[g_config->fixed_color];
+        toColor = RGBColor(nc.r, nc.g, nc.b);
+    } else if (g_config->colors.size() > 0) {
+        // AUTO mode - start with first color
+        const NamedColor& nc = g_config->colors[0];
+        toColor = RGBColor(nc.r, nc.g, nc.b);
+    } else {
+        toColor = RGBColor(255, 220, 0);
+    }
+
+    // Start the transition with configured duration
+    if (g_animator) {
+        g_animator->startTransition(fromColor, toColor, g_config->colorTransitionDurationMs);
+    }
+
+    // Start the border snake animation synchronized with color transition
+    if (g_snakeAnimation) {
+        g_snakeAnimation->start(fromColor, toColor, g_config->colorTransitionDurationMs);
+    }
+
+    *g_message_display_until = 0; // No text message - just show the transition
     g_config->save(CONFIG_PATH);
     printf("🎨 Color: %s\n", g_message_text->c_str());
 }
 
-// Ease-in-out cubic function for smooth transitions
-float easeInOutCubic(float t) {
-    return t < 0.5f ? 4.0f * t * t * t : 1.0f - (float)pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
-}
 
-// Interpolate between two colors
-Color interpolateColor(const NamedColor& from, const NamedColor& to, float progress) {
-    float eased = easeInOutCubic(progress);
-    uint8_t r = (uint8_t)(from.r * (1.0f - eased) + to.r * eased);
-    uint8_t g = (uint8_t)(from.g * (1.0f - eased) + to.g * eased);
-    uint8_t b = (uint8_t)(from.b * (1.0f - eased) + to.b * eased);
-    return Color(r, g, b);
-}
-
-int main(int argc, char *argv[]) {
+int main(int, char**) {
     // Set locale for date/time formatting (from Makefile LOCALE variable)
 #ifdef SYSTEM_LOCALE
     setlocale(LC_TIME, SYSTEM_LOCALE);
@@ -150,6 +185,17 @@ int main(int argc, char *argv[]) {
     // Load config using Config class
     Config config;
     bool config_loaded = config.load(CONFIG_PATH);
+
+    // Validate and clamp brightness
+    if (config.brightness < MIN_BRIGHTNESS) {
+        printf("⚠ Brightness %d%% below minimum, setting to %d%%\n", config.brightness, MIN_BRIGHTNESS);
+        config.brightness = MIN_BRIGHTNESS;
+        config.save(CONFIG_PATH);
+    } else if (config.brightness > MAX_BRIGHTNESS) {
+        printf("⚠ Brightness %d%% above maximum, clamping to %d%%\n", config.brightness, MAX_BRIGHTNESS);
+        config.brightness = MAX_BRIGHTNESS;
+        config.save(CONFIG_PATH);
+    }
 
     // Print current configuration
     if (config_loaded) {
@@ -182,26 +228,38 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     // Load fonts
-    rgb_matrix::Font font_large;
-    const char *font_large_path = "/root/fonts/7x14B.bdf";
-    if (!font_large.LoadFont(font_large_path)) {
-        fprintf(stderr, "Couldn't load large font: %s\n", font_large_path);
-        return 1;
+    // Date and time fonts from config with fallback to defaults
+    std::string date_font_path = "/root/fonts/" + config.dateFont;
+    std::string time_font_path = "/root/fonts/" + config.timeFont;
+
+    rgb_matrix::Font font_date;
+    if (!font_date.LoadFont(date_font_path.c_str())) {
+        fprintf(stderr, "⚠ Couldn't load date font: %s, using default 5x8.bdf\n", date_font_path.c_str());
+        if (!font_date.LoadFont("/root/fonts/5x8.bdf")) {
+            fprintf(stderr, "❌ Failed to load default date font\n");
+            return 1;
+        }
     }
 
-    rgb_matrix::Font font_small;
-    const char *font_small_path = "/root/fonts/5x8.bdf";
-    if (!font_small.LoadFont(font_small_path)) {
-        fprintf(stderr, "Couldn't load small font: %s\n", font_small_path);
-        return 1;
+    rgb_matrix::Font font_time;
+    if (!font_time.LoadFont(time_font_path.c_str())) {
+        fprintf(stderr, "⚠ Couldn't load time font: %s, using default 7x14B.bdf\n", time_font_path.c_str());
+        if (!font_time.LoadFont("/root/fonts/7x14B.bdf")) {
+            fprintf(stderr, "❌ Failed to load default time font\n");
+            return 1;
+        }
     }
 
+    // Tiny font for IP display (always 4x6.bdf)
     rgb_matrix::Font font_tiny;
     const char *font_tiny_path = "/root/fonts/4x6.bdf";
     if (!font_tiny.LoadFont(font_tiny_path)) {
         fprintf(stderr, "Couldn't load tiny font: %s\n", font_tiny_path);
         return 1;
     }
+
+    // For message display, use larger of the two fonts
+    rgb_matrix::Font* font_message = font_time.height() >= font_date.height() ? &font_time : &font_date;
 
     // Matrix configuration
     RGBMatrix::Options matrix_options;
@@ -252,12 +310,12 @@ int main(int argc, char *argv[]) {
     int ip_y = 12; // Upper half
     DrawText(offscreen_canvas, font_tiny, ip_x, ip_y, startup_color, NULL, local_ip.c_str());
 
-    // Draw version in small font below (centered)
+    // Draw version in date font below (centered)
     std::string version_text = std::string(Locale::MSG_VERSION_PREFIX) + std::string(VERSION_STRING);
-    int version_width = DrawText(temp_canvas, font_small, 0, 0, startup_color, NULL, version_text.c_str());
+    int version_width = DrawText(temp_canvas, font_date, 0, 0, startup_color, NULL, version_text.c_str());
     int version_x = (64 - version_width) / 2;
     int version_y = 26; // Lower half
-    DrawText(offscreen_canvas, font_small, version_x, version_y, startup_color, NULL, version_text.c_str());
+    DrawText(offscreen_canvas, font_date, version_x, version_y, startup_color, NULL, version_text.c_str());
 
     offscreen_canvas = matrix->SwapOnVSync(offscreen_canvas);
 
@@ -268,12 +326,20 @@ int main(int argc, char *argv[]) {
     std::string message_text = "";
     Color message_color(255, 255, 255);
 
+    // Create Animator instance
+    Animator animator;
+
+    // Create BorderSnakeAnimation instance (64x32 display, 16 pixel snake length)
+    BorderSnakeAnimation snakeAnimation(64, 32, 16);
+
     // Setup global pointers for button callbacks
     g_config = &config;
     g_matrix = matrix;
     g_message_display_until = &message_display_until;
     g_message_text = &message_text;
     g_message_color = &message_color;
+    g_animator = &animator;
+    g_snakeAnimation = &snakeAnimation;
 
     // Setup GPIO button using GPIOButton class
     GPIOButton button(GPIO_NUM);
@@ -293,7 +359,7 @@ int main(int argc, char *argv[]) {
     long next_color_change_time = transition_start_time + intervalMs;
 
     printf("Clock started.\n");
-    printf("  Short press: Cycle brightness (10%% - 100%%)\n");
+    printf("  Short press: Cycle brightness (%d%% - %d%%)\n", MIN_BRIGHTNESS, MAX_BRIGHTNESS);
     printf("  Long press: Cycle colors / AUTO mode\n");
 
     while (!interrupt_received) {
@@ -309,15 +375,36 @@ int main(int argc, char *argv[]) {
         Color display_color;
         if (current_time < message_display_until) {
             // Display message (color name or brightness)
-            int width = DrawText(temp_canvas, font_large, 0, 0, message_color, NULL, message_text.c_str());
+            int width = DrawText(temp_canvas, *font_message, 0, 0, message_color, NULL, message_text.c_str());
             int x = (64 - width) / 2;
             int y = 20;
 
-            DrawText(offscreen_canvas, font_large, x, y, message_color, NULL, message_text.c_str());
+            DrawText(offscreen_canvas, *font_message, x, y, message_color, NULL, message_text.c_str());
+        } else if (g_showing_auto_transition && animator.isAnimating()) {
+            // Show AUTO message during transition to AUTO mode
+            RGBColor rgb = animator.update();
+            display_color = Color(rgb.r, rgb.g, rgb.b);
+
+            int width = DrawText(temp_canvas, *font_message, 0, 0, display_color, NULL, Locale::MSG_AUTO);
+            int x = (64 - width) / 2;
+            int y = 20;
+
+            DrawText(offscreen_canvas, *font_message, x, y, display_color, NULL, Locale::MSG_AUTO);
         } else {
             // Normal clock display
-            if (config.fixed_color >= 0 && config.fixed_color < (int)config.colors.size()) {
-                // Fixed color mode
+
+            // Reset AUTO transition flag when animation is done
+            if (g_showing_auto_transition && !animator.isAnimating()) {
+                g_showing_auto_transition = false;
+            }
+
+            // Check if there's an active manual transition from button press
+            if (animator.isAnimating()) {
+                // Use animator's current color during manual transition
+                RGBColor rgb = animator.update();
+                display_color = Color(rgb.r, rgb.g, rgb.b);
+            } else if (config.fixed_color >= 0 && config.fixed_color < (int)config.colors.size()) {
+                // Fixed color mode (no animation)
                 const NamedColor& nc = config.colors[config.fixed_color];
                 display_color = Color(nc.r, nc.g, nc.b);
             } else if (config.colorTransitionEnabled && config.colors.size() >= 2) {
@@ -326,13 +413,18 @@ int main(int argc, char *argv[]) {
 
                 // Check if we're in the transition window (last N milliseconds before color change)
                 if (time_until_next_change <= config.colorTransitionDurationMs && time_until_next_change > 0) {
-                    // Transitioning to next color
-                    float progress = 1.0f - ((float)time_until_next_change / (float)config.colorTransitionDurationMs);
-                    display_color = interpolateColor(
-                        config.colors[current_color_index],
-                        config.colors[next_color_index],
-                        progress
-                    );
+                    // Start transitioning to next color if not already animating
+                    if (!animator.isAnimating()) {
+                        const NamedColor& from = config.colors[current_color_index];
+                        const NamedColor& to = config.colors[next_color_index];
+                        animator.startTransition(
+                            RGBColor(from.r, from.g, from.b),
+                            RGBColor(to.r, to.g, to.b),
+                            config.colorTransitionDurationMs
+                        );
+                    }
+                    RGBColor rgb = animator.update();
+                    display_color = Color(rgb.r, rgb.g, rgb.b);
                 } else if (time_until_next_change <= 0) {
                     // Time to switch to next color
                     current_color_index = next_color_index;
@@ -371,43 +463,117 @@ int main(int argc, char *argv[]) {
             strftime(date_buffer, sizeof(date_buffer), config.dateFormat.c_str(), tm_info);
             strftime(time_buffer, sizeof(time_buffer), config.timeFormat.c_str(), tm_info);
 
-            // Measure text widths
-            int date_width = DrawText(temp_canvas, font_small, 0, 0, display_color, NULL, date_buffer);
-            int time_width = DrawText(temp_canvas, font_large, 0, 0, display_color, NULL, time_buffer);
-
-            // Get font heights from BDF metadata
-            int time_height = font_large.height();
-            int date_height = font_small.height();
+            // Convert date to uppercase
+            for (size_t i = 0; i < strlen(date_buffer); i++) {
+                date_buffer[i] = toupper(date_buffer[i]);
+            }
 
             // Calculate centered positions
             const int MATRIX_WIDTH = 64;
             const int MATRIX_HEIGHT = 32;
             const int SPACING = 1; // Space between date and time
 
-            // Total content height
-            int total_height = date_height + SPACING + time_height;
+            // Conditional rendering based on config
+            if (config.showDate && config.showTime) {
+                // Show both date and time
+                int date_width = DrawText(temp_canvas, font_date, 0, 0, display_color, NULL, date_buffer);
+                int time_width = DrawText(temp_canvas, font_time, 0, 0, display_color, NULL, time_buffer);
 
-            // Center vertically
-            int start_y = (MATRIX_HEIGHT - total_height) / 2;
+                int time_height = font_time.height();
+                int date_height = font_date.height();
 
-            // Calculate X positions (horizontal centering)
-            int date_x = (MATRIX_WIDTH - date_width) / 2;
-            int time_x = (MATRIX_WIDTH - time_width) / 2;
+                // Total content height
+                int total_height = date_height + SPACING + time_height;
 
-            // Calculate Y positions (baselines)
-            int date_y = start_y + font_small.baseline();
-            int time_y = date_y + date_height - font_small.baseline() + SPACING + font_large.baseline();
+                // Center vertically
+                int start_y = (MATRIX_HEIGHT - total_height) / 2;
 
-            // Draw date and time
-            DrawText(offscreen_canvas, font_small, date_x, date_y, display_color, NULL, date_buffer);
-            DrawText(offscreen_canvas, font_large, time_x, time_y, display_color, NULL, time_buffer);
+                // Calculate X positions (horizontal centering)
+                int date_x = (MATRIX_WIDTH - date_width) / 2;
+                int time_x = (MATRIX_WIDTH - time_width) / 2;
+
+                // Calculate Y positions (baselines)
+                int date_y = start_y + font_date.baseline();
+                int time_y = date_y + date_height - font_date.baseline() + SPACING + font_time.baseline();
+
+                // Draw date and time
+                DrawText(offscreen_canvas, font_date, date_x, date_y, display_color, NULL, date_buffer);
+                DrawText(offscreen_canvas, font_time, time_x, time_y, display_color, NULL, time_buffer);
+            } else if (config.showDate && !config.showTime) {
+                // Show only date (centered vertically, with word wrap if needed)
+                int date_width = DrawText(temp_canvas, font_date, 0, 0, display_color, NULL, date_buffer);
+
+                if (date_width <= MATRIX_WIDTH) {
+                    // Date fits in one line - center it
+                    int date_x = (MATRIX_WIDTH - date_width) / 2;
+                    int date_y = (MATRIX_HEIGHT / 2) + (font_date.baseline() / 2);
+                    DrawText(offscreen_canvas, font_date, date_x, date_y, display_color, NULL, date_buffer);
+                } else {
+                    // Date too wide - split into words and wrap
+                    std::vector<std::string> lines;
+                    std::string current_line = "";
+                    std::string date_str(date_buffer);
+                    std::istringstream words(date_str);
+                    std::string word;
+
+                    while (words >> word) {
+                        std::string test_line = current_line.empty() ? word : current_line + " " + word;
+                        int test_width = DrawText(temp_canvas, font_date, 0, 0, display_color, NULL, test_line.c_str());
+
+                        if (test_width <= MATRIX_WIDTH) {
+                            current_line = test_line;
+                        } else {
+                            if (!current_line.empty()) {
+                                lines.push_back(current_line);
+                            }
+                            current_line = word;
+                        }
+                    }
+                    if (!current_line.empty()) {
+                        lines.push_back(current_line);
+                    }
+
+                    // Calculate total height and center vertically
+                    int date_height = font_date.height();
+                    int total_height = lines.size() * date_height;
+                    int start_y = (MATRIX_HEIGHT - total_height) / 2;
+
+                    // Draw each line centered
+                    for (size_t i = 0; i < lines.size(); i++) {
+                        int line_width = DrawText(temp_canvas, font_date, 0, 0, display_color, NULL, lines[i].c_str());
+                        int line_x = (MATRIX_WIDTH - line_width) / 2;
+                        int line_y = start_y + (i * date_height) + font_date.baseline();
+                        DrawText(offscreen_canvas, font_date, line_x, line_y, display_color, NULL, lines[i].c_str());
+                    }
+                }
+            } else if (!config.showDate && config.showTime) {
+                // Show only time (centered vertically)
+                int time_width = DrawText(temp_canvas, font_time, 0, 0, display_color, NULL, time_buffer);
+
+                // Center horizontally and vertically
+                int time_x = (MATRIX_WIDTH - time_width) / 2;
+                int time_y = (MATRIX_HEIGHT / 2) + (font_time.baseline() / 2);
+
+                DrawText(offscreen_canvas, font_time, time_x, time_y, display_color, NULL, time_buffer);
+            }
+            // If neither is shown (shouldn't happen due to validation), nothing is drawn
+        }
+
+        // Draw border snake animation if active (on top of everything)
+        if (snakeAnimation.isAnimating()) {
+            auto snakePixels = snakeAnimation.update();
+            for (const auto& pixel : snakePixels) {
+                const Point& p = pixel.first;
+                const RGBColor& c = pixel.second;
+                offscreen_canvas->SetPixel(p.x, p.y, c.r, c.g, c.b);
+            }
         }
 
         // Swap buffers
         offscreen_canvas = matrix->SwapOnVSync(offscreen_canvas);
 
         // Update frequency
-        usleep(40000); // 50ms for responsive button detection
+        usleep(MAIN_LOOP_USLEEP); // 50ms for responsive button detection
     }
 
     // Cleanup

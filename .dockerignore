@@ -1,0 +1,7 @@
+build/
+.git/
+*.o
+.DS_Store
+deploy.sh
+Dockerfile
+.dockerignore

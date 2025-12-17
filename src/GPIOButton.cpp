@@ -5,7 +5,8 @@
 
 GPIOButton::GPIOButton(int pin, int debounce_ms, int long_press_ms)
     : pin_(pin), debounce_ms_(debounce_ms), long_press_ms_(long_press_ms),
-      last_value_(1), button_press_start_(0), button_was_pressed_(false) {}
+      last_value_(1), button_press_start_(0), button_was_pressed_(false),
+      long_press_triggered_(false) {}
 
 GPIOButton::~GPIOButton() {}
 
@@ -40,30 +41,57 @@ void GPIOButton::poll(long current_time_ms) {
     if (last_value_ == 1 && gpio_value == 0) {
         button_press_start_ = current_time_ms;
         button_was_pressed_ = true;
+        long_press_triggered_ = false;
+
+        // Call onPress callback
+        if (press_callback_) press_callback_();
+    }
+    // Check for long press while button is held
+    else if (gpio_value == 0 && button_was_pressed_ && !long_press_triggered_) {
+        long press_duration = current_time_ms - button_press_start_;
+
+        if (press_duration >= long_press_ms_) {
+            long_press_triggered_ = true;
+            // Call onLongPress callback
+            if (long_press_callback_) long_press_callback_();
+        }
     }
     // Detect rising edge (button released)
     else if (last_value_ == 0 && gpio_value == 1 && button_was_pressed_) {
         long press_duration = current_time_ms - button_press_start_;
 
-        if (press_duration >= long_press_ms_) {
-            // Long press
-            if (long_press_callback_) long_press_callback_();
-        }
-        else if (press_duration >= debounce_ms_) {
-            // Short press
-            if (short_press_callback_) short_press_callback_();
+        // Call onRelease callback
+        if (release_callback_) release_callback_();
+
+        // Call onTap callback only if long press was not triggered
+        if (!long_press_triggered_ && press_duration >= debounce_ms_) {
+            if (tap_callback_) tap_callback_();
         }
 
         button_was_pressed_ = false;
+        long_press_triggered_ = false;
     }
 
     last_value_ = gpio_value;
 }
 
-void GPIOButton::onShortPress(std::function<void()> callback) {
-    short_press_callback_ = callback;
+void GPIOButton::onPress(std::function<void()> callback) {
+    press_callback_ = callback;
+}
+
+void GPIOButton::onRelease(std::function<void()> callback) {
+    release_callback_ = callback;
+}
+
+void GPIOButton::onTap(std::function<void()> callback) {
+    tap_callback_ = callback;
 }
 
 void GPIOButton::onLongPress(std::function<void()> callback) {
     long_press_callback_ = callback;
+}
+
+void GPIOButton::onShortPress(std::function<void()> callback) {
+    // Alias for onTap for legacy compatibility
+    tap_callback_ = callback;
 }

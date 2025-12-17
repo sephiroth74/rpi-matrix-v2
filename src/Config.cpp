@@ -7,7 +7,9 @@ using json = nlohmann::json;
 
 Config::Config() : brightness(50), fixed_color(-1), colorTransitionEnabled(true),
                    colorTransitionIntervalMinutes(2), colorTransitionDurationMs(1000),
-                   dateFormat("%a %d %b"), timeFormat("%H:%M:%S") {
+                   dateFormat("%a %d %b"), timeFormat("%H:%M:%S"),
+                   showDate(true), showTime(true),
+                   dateFont("5x8.bdf"), timeFont("7x14B.bdf") {
     // Default: 2 minutes interval, 1 second transition
     colors = {
         {"GIALLO", 255, 220, 0},
@@ -63,6 +65,18 @@ bool Config::load(const char* path) {
         if (j.contains("dateFormat")) dateFormat = j["dateFormat"];
         if (j.contains("timeFormat")) timeFormat = j["timeFormat"];
 
+        // Load display options
+        if (j.contains("showDate")) showDate = j["showDate"];
+        if (j.contains("showTime")) showTime = j["showTime"];
+        if (j.contains("dateFont")) dateFont = j["dateFont"];
+        if (j.contains("timeFont")) timeFont = j["timeFont"];
+
+        // Validation: at least one of date or time must be shown
+        if (!showDate && !showTime) {
+            fprintf(stderr, "Warning: Both showDate and showTime are false. Enabling time display.\n");
+            showTime = true;
+        }
+
         return true;
     } catch (const std::exception& e) {
         fprintf(stderr, "Error parsing config: %s\n", e.what());
@@ -95,6 +109,12 @@ bool Config::save(const char* path) {
         // Save date and time formats
         j["dateFormat"] = dateFormat;
         j["timeFormat"] = timeFormat;
+
+        // Save display options
+        j["showDate"] = showDate;
+        j["showTime"] = showTime;
+        j["dateFont"] = dateFont;
+        j["timeFont"] = timeFont;
 
         // Write to file
         std::ofstream file(path);

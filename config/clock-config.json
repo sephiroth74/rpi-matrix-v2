@@ -1,8 +1,12 @@
 {
-  "brightness": 50,
+  "brightness": 100,
   "fixed_color": -1,
   "dateFormat": "%a %d %b",
-  "timeFormat": "%H:%M:%S",
+  "timeFormat": "%H:%M.%S",
+  "showDate": true,
+  "showTime": true,
+  "dateFont": "5x8.bdf",
+  "timeFont": "7x14B.bdf",
   "colors": [
     { "name": "ROSSO", "r": 255, "g": 0, "b": 0 },
     { "name": "ARANCIO", "r": 255, "g": 128, "b": 0 },
@@ -17,7 +21,7 @@
   ],
   "colorTransition": {
     "enabled": true,
-    "intervalMinutes": 2,
+    "intervalMinutes": 60,
     "durationMs": 1000
   }
 }
