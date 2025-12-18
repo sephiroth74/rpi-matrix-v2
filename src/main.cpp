@@ -471,7 +471,6 @@ int main(int, char**) {
             // Calculate centered positions
             const int MATRIX_WIDTH = 64;
             const int MATRIX_HEIGHT = 32;
-            const int SPACING = 1; // Space between date and time
 
             // Conditional rendering based on config
             if (config.showDate && config.showTime) {
@@ -479,22 +478,38 @@ int main(int, char**) {
                 int date_width = DrawText(temp_canvas, font_date, 0, 0, display_color, NULL, date_buffer);
                 int time_width = DrawText(temp_canvas, font_time, 0, 0, display_color, NULL, time_buffer);
 
-                int time_height = font_time.height();
+                // Get font metrics
                 int date_height = font_date.height();
+                int time_height = font_time.height();
+                int date_baseline = font_date.baseline();
+                int time_baseline = font_time.baseline();
 
-                // Total content height
-                int total_height = date_height + SPACING + time_height;
+                // Calculate visual heights based on ignoreDescenders flags
+                // If ignoring descenders (for uppercase/numbers only), use only ascent
+                // Otherwise use full font height
+                int date_visual_height = config.dateIgnoreDescenders ? date_baseline : date_height;
+                int time_visual_height = config.timeIgnoreDescenders ? time_baseline : time_height;
 
-                // Center vertically
+                // Use configured spacing, but clamp if needed to fit on display
+                int spacing = config.dateTimeSpacing;
+                int total_height = date_visual_height + spacing + time_visual_height;
+                if (total_height > MATRIX_HEIGHT) {
+                    // Clamp spacing to fit
+                    spacing = MATRIX_HEIGHT - date_visual_height - time_visual_height;
+                    if (spacing < 0) spacing = 0;  // Minimum spacing
+                    total_height = date_visual_height + spacing + time_visual_height;
+                }
+
+                // Center the visible content vertically
                 int start_y = (MATRIX_HEIGHT - total_height) / 2;
 
                 // Calculate X positions (horizontal centering)
                 int date_x = (MATRIX_WIDTH - date_width) / 2;
                 int time_x = (MATRIX_WIDTH - time_width) / 2;
 
-                // Calculate Y positions (baselines)
-                int date_y = start_y + font_date.baseline();
-                int time_y = date_y + date_height - font_date.baseline() + SPACING + font_time.baseline();
+                // Calculate Y positions (baseline positions for DrawText)
+                int date_y = start_y + date_baseline;
+                int time_y = start_y + date_visual_height + spacing + time_baseline;
 
                 // Draw date and time
                 DrawText(offscreen_canvas, font_date, date_x, date_y, display_color, NULL, date_buffer);

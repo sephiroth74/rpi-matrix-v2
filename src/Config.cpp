@@ -9,7 +9,9 @@ Config::Config() : brightness(50), fixed_color(-1), colorTransitionEnabled(true)
                    colorTransitionIntervalMinutes(2), colorTransitionDurationMs(1000),
                    dateFormat("%a %d %b"), timeFormat("%H:%M:%S"),
                    showDate(true), showTime(true),
-                   dateFont("5x8.bdf"), timeFont("7x14B.bdf") {
+                   dateFont("5x8.bdf"), timeFont("7x14B.bdf"),
+                   dateIgnoreDescenders(true), timeIgnoreDescenders(true),
+                   dateTimeSpacing(1) {
     // Default: 2 minutes interval, 1 second transition
     colors = {
         {"GIALLO", 255, 220, 0},
@@ -70,6 +72,9 @@ bool Config::load(const char* path) {
         if (j.contains("showTime")) showTime = j["showTime"];
         if (j.contains("dateFont")) dateFont = j["dateFont"];
         if (j.contains("timeFont")) timeFont = j["timeFont"];
+        if (j.contains("dateIgnoreDescenders")) dateIgnoreDescenders = j["dateIgnoreDescenders"];
+        if (j.contains("timeIgnoreDescenders")) timeIgnoreDescenders = j["timeIgnoreDescenders"];
+        if (j.contains("dateTimeSpacing")) dateTimeSpacing = j["dateTimeSpacing"];
 
         // Validation: at least one of date or time must be shown
         if (!showDate && !showTime) {
@@ -115,6 +120,9 @@ bool Config::save(const char* path) {
         j["showTime"] = showTime;
         j["dateFont"] = dateFont;
         j["timeFont"] = timeFont;
+        j["dateIgnoreDescenders"] = dateIgnoreDescenders;
+        j["timeIgnoreDescenders"] = timeIgnoreDescenders;
+        j["dateTimeSpacing"] = dateTimeSpacing;
 
         // Write to file
         std::ofstream file(path);

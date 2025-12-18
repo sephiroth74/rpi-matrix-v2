@@ -10,7 +10,7 @@
 
 // Display timing constants
 #define COLOR_DISPLAY_MS 2000               // Duration to show color/brightness messages (ms)
-#define VERSION_DISPLAY_MS 5000             // Duration to show version/IP at startup (ms)
+#define VERSION_DISPLAY_MS 4000             // Duration to show version/IP at startup (ms)
 
 // Brightness control constants
 #define MIN_BRIGHTNESS 20                   // Minimum brightness level (%)
@@ -55,6 +55,9 @@ public:
     // Font settings
     std::string dateFont;                   // BDF font file for date (e.g., "5x8.bdf")
     std::string timeFont;                   // BDF font file for time (e.g., "7x14B.bdf")
+    bool dateIgnoreDescenders;              // Ignore descenders for date (true for uppercase-only text)
+    bool timeIgnoreDescenders;              // Ignore descenders for time (true for uppercase-only text)
+    int dateTimeSpacing;                    // Vertical spacing between date and time in pixels
 
     /**
      * Constructor - initializes configuration with default values

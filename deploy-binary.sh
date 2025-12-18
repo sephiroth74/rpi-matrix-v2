@@ -8,6 +8,8 @@ RPI_HOST=""
 RPI_USER="root"
 RPI_PASS=""
 BINARY_PATH="build/led-clock"
+CONFIG_PATH="config/clock-config.json"
+FONTS_DIR="assets/fonts"
 
 # Function to show usage
 show_usage() {
@@ -83,6 +85,18 @@ if [ ! -f "$BINARY_PATH" ]; then
     exit 1
 fi
 
+# Check if config exists
+if [ ! -f "$CONFIG_PATH" ]; then
+    echo "❌ Config not found at $CONFIG_PATH"
+    exit 1
+fi
+
+# Check if fonts directory exists
+if [ ! -d "$FONTS_DIR" ]; then
+    echo "❌ Fonts directory not found at $FONTS_DIR"
+    exit 1
+fi
+
 # Verify binary architecture
 echo "📋 Binary info:"
 file $BINARY_PATH 2>/dev/null || echo "ARM64 (aarch64) ELF binary"
@@ -113,12 +127,37 @@ fi
 echo "✓ Binary uploaded"
 echo ""
 
-# Step 3: Stop service, replace binary, restart
+# Step 3: Upload configuration
+echo "📄 Uploading configuration file..."
+sshpass -p "$RPI_PASS" scp -o StrictHostKeyChecking=no $CONFIG_PATH ${RPI_USER}@${RPI_HOST}:/tmp/clock-config.json
+
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to upload configuration"
+    exit 1
+fi
+echo "✓ Configuration uploaded"
+echo ""
+
+# Step 4: Upload fonts
+echo "🔤 Uploading fonts..."
+sshpass -p "$RPI_PASS" ssh -o StrictHostKeyChecking=no ${RPI_USER}@${RPI_HOST} "mkdir -p /root/fonts"
+sshpass -p "$RPI_PASS" rsync -az --info=progress2 -e "sshpass -p $RPI_PASS ssh -o StrictHostKeyChecking=no" $FONTS_DIR/ ${RPI_USER}@${RPI_HOST}:/root/fonts/
+
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to upload fonts"
+    exit 1
+fi
+echo "✓ Fonts uploaded"
+echo ""
+
+# Step 5: Stop service, replace binary and config, restart
 echo "🚀 Deploying and restarting service..."
 sshpass -p "$RPI_PASS" ssh -o StrictHostKeyChecking=no ${RPI_USER}@${RPI_HOST} << 'ENDSSH'
 systemctl stop led-clock.service
 mv /tmp/led-clock-new /root/clock-full
 chmod +x /root/clock-full
+mv /tmp/clock-config.json /root/clock-config.json
+chmod 644 /root/clock-config.json
 systemctl start led-clock.service
 sleep 2
 systemctl status led-clock.service --no-pager -l
@@ -142,6 +181,11 @@ echo ""
 echo "════════════════════════════════════════════════════════"
 echo "  ✓ Deployment complete!"
 echo "════════════════════════════════════════════════════════"
+echo ""
+echo "Deployed:"
+echo "  • Binary: /root/clock-full"
+echo "  • Config: /root/clock-config.json"
+echo "  • Fonts:  /root/fonts/ ($(ls -1 $FONTS_DIR | wc -l | tr -d ' ') files)"
 echo ""
 echo "To view live logs, run:"
 echo "  sshpass -p \"$RPI_PASS\" ssh ${RPI_USER}@${RPI_HOST} \"journalctl -u led-clock.service -f\""
