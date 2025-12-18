@@ -60,25 +60,34 @@
 
 ### Features
 
-- **Centered display** with customizable date/time format (e.g., MON 15 DEC + HH:MM:SS)
+- **Flexible display layout** with customizable date/time format
+  - Show both date and time, or just one of them
+  - Customizable fonts for date and time separately
+  - Configurable vertical spacing between date and time
+  - Optional descender handling for uppercase-only text (perfect vertical centering)
+  - Word wrap support for long date strings
 - **Brightness control** via physical button (GPIO 19)
-  - **Short press (< 1s)**: Cycle brightness in 10% steps (10% → 20% → ... → 100% → 10%)
+  - **Short press (< 1s)**: Cycle brightness in 10% steps (20% → 30% → ... → 100% → 20%)
   - Briefly displays "XX%" on screen when brightness changes
+  - Range: 20%-100% (configurable via MIN_BRIGHTNESS/MAX_BRIGHTNESS)
 - **Color selection** via physical button
   - **Long press (≥ 1s)**: Cycle through 10 customizable colors + AUTO mode
+  - Smooth color transition animation with border snake effect during manual color changes
   - Color name is displayed for 2 seconds in the selected color
-  - AUTO mode: smooth color transitions with configurable timing
-- **Smooth color transitions** in AUTO mode
+  - AUTO mode: automatic color transitions with configurable timing
+- **Smooth color transitions**
   - Uses cubic ease-in-out interpolation for natural color changes
   - Configurable interval (minutes) and transition duration (milliseconds)
+  - Border snake animation during transitions (two snakes meeting at top center)
 - **Persistent configuration** saved to `/root/clock-config.json`
-  - Brightness and selected color are saved automatically
+  - All settings saved automatically (brightness, color, fonts, spacing, etc.)
   - Changes persist after reboot
 - **Systemd service** for automatic startup
-- **Startup display** shows local IP address and version for 5 seconds
+- **Startup display** shows local IP address and version for 4 seconds
   - Useful for SSH access without connecting a monitor
 - **Multi-language support** via locale files (Italian and English included)
   - Both compile-time (UI messages) and runtime (date/time formatting)
+- **46 BDF fonts included** for extensive customization options
 
 ### Available Colors
 
@@ -102,24 +111,32 @@ The `/root/clock-config.json` file contains all settings:
 
 ```json
 {
-  "brightness": 50,              // Current brightness (10-100)
+  "brightness": 100,             // Current brightness (20-100)
   "fixed_color": -1,             // Color index (-1 = AUTO, 0-9 = fixed color)
+  "dateFormat": "%a %d %b",      // Date format (strftime)
+  "timeFormat": "%H:%M:%S",      // Time format (strftime)
+  "showDate": true,              // Show/hide date
+  "showTime": true,              // Show/hide time (at least one must be true)
+  "dateFont": "5x8.bdf",         // Font file for date
+  "timeFont": "7x14B.bdf",       // Font file for time
+  "dateIgnoreDescenders": true,  // Ignore descenders for date (true for uppercase-only)
+  "timeIgnoreDescenders": true,  // Ignore descenders for time (true for uppercase-only)
+  "dateTimeSpacing": 1,          // Vertical spacing between date and time (pixels)
   "colors": [                    // Array of available colors
     {
       "name": "ROSSO",           // Name shown on display
       "r": 255,                  // Red component (0-255)
       "g": 0,                    // Green component (0-255)
       "b": 0                     // Blue component (0-255)
-    },
+    }
     // ... other colors
   ],
   "colorTransition": {
     "enabled": true,             // Enable smooth transitions in AUTO mode
-    "intervalMinutes": 2,        // Minutes between color changes
+    "intervalMinutes": 60,       // Minutes between color changes
     "durationMs": 1000           // Transition duration in milliseconds
-  },
-  "dateFormat": "%a %d %b",      // Date format (strftime)
-  "timeFormat": "%H:%M:%S"       // Time format (strftime)
+  }
+}
 ```
 
 **How to modify colors:**
@@ -131,23 +148,34 @@ The `/root/clock-config.json` file contains all settings:
 
 **How to change default brightness:**
 
-1. Modify the `"brightness"` value in the config (10-100)
+1. Modify the `"brightness"` value in the config (20-100)
 2. Or use the button and the value will be saved automatically
 
 **How to adjust color transitions:**
 
 1. Edit `colorTransition.intervalMinutes` - how long each color is displayed (in minutes)
 2. Edit `colorTransition.durationMs` - how long the transition animation lasts (in milliseconds)
-3. Example: `intervalMinutes: 2` with `durationMs: 1000` means each color is shown for 2 minutes, with a 1-second smooth transition to the next color
+3. Example: `intervalMinutes: 60` with `durationMs: 1000` means each color is shown for 60 minutes, with a 1-second smooth transition to the next color
 
 **How to customize date/time format:**
 
 1. Edit `dateFormat` and `timeFormat` using [strftime format codes](https://man7.org/linux/man-pages/man3/strftime.3.html)
 2. Examples:
-   - `"%a %d %b"` → "Mon 15 Dec"
+   - `"%a %d %b"` → "MON 15 DEC" (uppercase via code)
    - `"%d/%m/%Y"` → "15/12/2024"
    - `"%H:%M:%S"` → "16:34:42"
    - `"%I:%M %p"` → "04:34 PM"
+
+**How to customize display layout:**
+
+1. **Show/hide date or time**: Set `showDate` or `showTime` to `true`/`false` (at least one must be true)
+2. **Change fonts**: Set `dateFont` and `timeFont` to any BDF font file in `/root/fonts/`
+   - Available fonts: 46 BDF fonts in various sizes (4x6, 5x8, 7x14B, 10x20, etc.)
+3. **Adjust spacing**: Set `dateTimeSpacing` to control vertical pixels between date and time
+   - Will be automatically clamped if text doesn't fit
+4. **Perfect centering**: Set `dateIgnoreDescenders` and `timeIgnoreDescenders` to `true` for uppercase-only text
+   - This ignores the descender space (for letters like g, j, p, q, y) when you're only using uppercase letters and numbers
+   - Results in better vertical centering
 
 ### Installation
 
